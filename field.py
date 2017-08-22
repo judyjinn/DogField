@@ -72,6 +72,7 @@ Head up is 1, head down is 0
 Convert the GPS tracker CSV file using http://www.gpsvisualizer.com/ 
 to a gpx file to put it into Google Maps
 
+TODO: fix calculation for area between trails
 
 '''
 
@@ -82,6 +83,17 @@ to a gpx file to put it into Google Maps
 '''
 
 def convert_GPS(data, header, Hz):
+    ''' Converts GPS from NMEA to lat/long format
+
+    Args:
+        data:       pandas data frame; contains raw GPS data
+        header:     list of str; header to be put as colum names
+        Hz:         recording rate of GPS
+
+    Returns: 
+        data:       pandas data frame; containing lat/long GPS coordinates
+    '''
+    
     data.columns = header
     data = data.drop('rm1',1)
     data = data.drop('rm2',1)
@@ -107,6 +119,17 @@ def convert_GPS(data, header, Hz):
     return data
     
 def weather_station():
+    ''' Concatenates all the mobile weather station data from the two experiments
+        returns them as a pandas data frame
+
+    Args:
+        None
+
+    Returns: 
+        WS_data:   pandas data frame; containing lat/long GPS coordinates
+                    from trail aging experiments as well as time of day expts
+    '''
+    
     TofD_WS_file = path+'/TofD_WS.csv'
     TofD_WS = pd.read_csv(TofD_WS_file, sep=',')
     trail_age_file = path+'/trail_age_WS.csv'
@@ -117,6 +140,20 @@ def weather_station():
     
     
 def clean_trail(raw_GPS, trail_name, header, Hz, trail_path):
+    ''' Transforming data for anlyses. Adds a time column, calculates centroids
+        of GPS data to downsample from 5 Hz to 1 Hz.
+
+    Args:
+        raw_GPS:        pandas data frame; GPS data converted to lat/long
+        trail_name:     str; file name for GPS data
+        header:         list of str; contains column names
+        Hz:             int; speed of GPS recording
+        trail_path:     str; path to file
+
+    Returns: 
+        raw_GPS:        pandas data frame; GPS with lat/long and added time col
+        centroid_1Hz:   pandas data frame; downsampled GPS data
+    '''
     
     # Modify Time of Day trail by finding average GPS points every second
     raw_GPS = convert_GPS(raw_GPS, header, Hz)
@@ -156,7 +193,8 @@ def clean_trail(raw_GPS, trail_name, header, Hz, trail_path):
         centroid_1Hz = centroid_latlong[['center_lat','center_long']]
         centroid_1Hz.columns = ['lat','long']
         centroid_1Hz.to_csv(trail_path + '/' + trail_name + '_centroid_1Hz.csv', 
-            sep=',',index=False)
+            sep=',',index=False
+            )
     else:
         centroid_1Hz = pd.read_csv(trail_path + '/' + trail_name + \
         '_centroid_1Hz.csv'
@@ -165,6 +203,21 @@ def clean_trail(raw_GPS, trail_name, header, Hz, trail_path):
     return raw_GPS, centroid_1Hz
     
 def graph_trail(dog_name, dog, dog_tilt, dog_WS, trail, condition, save_path):
+    ''' Graphs human trail, dog trail, dog head up/down, and wind directions
+        Saves graph as png
+
+    Args:
+        dog_name:   str; name of dog
+        dog:        pd df; GPS trail of dog
+        dog_tilt:   pd df; head up/down of dog
+        dog_WS:     pd df; mobile weather station readings for dog's trail
+        trail:      pd df; GPS of human trail
+        condition:  str; name of experiment
+        save_path:  str; path to save location
+
+    Returns: 
+        None
+    '''
     
     fig = plt.figure(figsize = (15,5))
     ax = fig.gca()
@@ -187,7 +240,7 @@ def graph_trail(dog_name, dog, dog_tilt, dog_WS, trail, condition, save_path):
         marker = "s", zorder = 5, label = 'Weather Station Points'
         )    
     ax.quiver(dog_WS['wp_long'], dog_WS['wp_lat'], 
-        dog_WS['wind_cos(rad)']*dog_WS['Wind Speed'], 
+        dog_WS['wind_cos(rad)']*dog_WS['Wind Speed'], # scale by wind speed
         dog_WS['wind_sin(rad)']*dog_WS['Wind Speed'], 
         zorder = 1, width = 0.002, color = 'crimson',alpha=0.5,
         label = 'Wind Direction'
@@ -199,10 +252,19 @@ def graph_trail(dog_name, dog, dog_tilt, dog_WS, trail, condition, save_path):
     plt.subplots_adjust(bottom = None, top = 0.9)
     fig.savefig((save_path+'/'+dog_name+'_'+condition+'.png'))
     plt.close()
+    
     return
     
 def WS_wind(WS_file):
-    # Used for finding vert/horiziontal components of wind direction
+    ''' Finding vert/horiziontal components of wind direction for graphing
+
+    Args:
+        WS_file:    pd df; all mobile weather station data
+
+    Returns: 
+        WS_file:    pd df; containing two new cols for wind direction components
+    '''
+    
     def wind_cos(data):
         data['wind_cos(rad)'] = math.cos(data['Wind Direction (deg)'] * 
             math.pi/180.0)
@@ -218,6 +280,17 @@ def WS_wind(WS_file):
     return WS_file
 
 def find_dog_file(files_path, dog_name, condition):
+    ''' Pulls correct CSV file for dog trail being analyzed
+
+    Args:
+        files_path: str; path to file
+        dog_name:   str; name of dog
+        condition:  str; name of experiment
+
+    Returns: 
+        dog_track:  pd df; data of dog GPS and head up/down
+    '''
+    
     tracks_files = os.listdir(files_path)
     for file_name in tracks_files:
         if ((dog_name in file_name) & (condition.replace(' ','') in file_name)):
@@ -227,9 +300,23 @@ def find_dog_file(files_path, dog_name, condition):
 
 
 def area_btwn_trails(dog_centroid, trail):
+    ''' Creates a polygon from the human trail and dog trail.
+        Calculates the area of polygon.
+        Note: Currently there is some problem with this calculation. Fix later.
+
+    Args:
+        dog_centroid:   pd df; downsampled GPS data for dog
+        trail:          pd df; GPS data of human trail
+
+    Returns: 
+        area:           float; Area of the polygon created
+    '''
+    
     dog_centroid_list = dog_centroid.values.tolist()
     trail_list=trail.values.tolist()
     polygon_points = []
+    
+    # Concatenate all points together and close off the beginnig and end
     for xy in dog_centroid_list:
         polygon_points.append(xy)
     
@@ -239,12 +326,26 @@ def area_btwn_trails(dog_centroid, trail):
     for xy in dog_centroid_list[0:1]:
         polygon_points.append(xy)
 
+    # create a polygon from all points
     polygon = Polygon(polygon_points)
     area = polygon.area
     
     return area
 
 def distance_from_trail(dog_centroid, trail, file_name, dist_path,):
+    ''' Uses K-D trees using all points from the dog's trail to find the nearest
+        GPS point to the human's trail. Saves as CSV or opens if already exists
+
+    Args:
+        dog_centroid:   pd df; downsampled GPS data for dog
+        trail:          pd df; GPS data of human trail
+        file_name:      str; what to name the saved file
+        dist_path:      str; path to save/open the distance CSV file
+
+    Returns: 
+        dog2trail_dist: pd df; data containing the distance between points
+    '''
+    
     if not os.path.exists(dist_path):
         os.makedirs(dist_path)
     
@@ -278,6 +379,20 @@ def distance_from_trail(dog_centroid, trail, file_name, dist_path,):
     return dog2trail_dist
 
 def time_of_day(path, header, Hz, field_info, WS_data):
+    ''' Calculates stats about the time of day experiment regarding trail length,
+        time to completing the trail, meteorlogical data, etc.
+
+    Args:
+        path:       str; main path of script
+        header:     list of str; names for coluns
+        Hz:         int; rate of GPS recordings
+        field_info: pd df; contains information about each experiment
+        WS_data:    pd df; all mobile weather station readings
+
+    Returns: 
+        ToD_trail_diff: pd df; data containing stats about each dog's trail
+    '''
+    
     # Time of Day trail
     # Find centroids for raw GPS data if file has not yet been created
     trail_path = (path + '/TrackingData/briones_TofD/'
@@ -297,7 +412,7 @@ def time_of_day(path, header, Hz, field_info, WS_data):
         TofD_trail = pd.read_csv(path + '/TrackingData/briones_TofD/' 
             'Trail/Briones_1hr_centroid1Hz.csv', sep=','
             )
-        
+    # check for existing graph folder    
     TofD_graph_folder = path+'/TrackingData/briones_TofD/graphs'    
     if not os.path.exists(TofD_graph_folder):
         os.makedirs(TofD_graph_folder)
@@ -305,10 +420,13 @@ def time_of_day(path, header, Hz, field_info, WS_data):
     field_info_TofD = field_info[
         field_info['expt'] == 'Time of Day'].reset_index() 
     list_conditions = field_info_TofD['condition'].unique().tolist()
+    
+    # create empty dict to store information about each dog
     TofD_stats_dict = {}
     for condition in list_conditions:
         TofD_stats_dict[condition]={}
     
+    # Loop through all dog trials and calculate data for each
     TofD_files = path+'/TrackingData/briones_TofD/dogs'
     TofD_dist_folder = path+'/TrackingData/briones_TofD/dogs/dog2trail_dist'
     for trial in range(0, len(field_info_TofD)):
@@ -316,17 +434,21 @@ def time_of_day(path, header, Hz, field_info, WS_data):
         dog_name = (field_info_TofD.iloc[trial]['dog'])
         trail = (field_info_TofD.iloc[trial]['trail_laid_by'])
         condition = (field_info_TofD.iloc[trial]['condition'])
-
+        
+        # Find correct file
         dog_track = find_dog_file(TofD_files, dog_name, condition)
 
+        # Check if centroids folder exists
         TofD_centroids_folder = path+'/TrackingData/briones_TofD/dogs/centroids'
         if not os.path.exists(TofD_centroids_folder):
             os.makedirs(TofD_centroids_folder)
         
+        # Downsample GPS data if not already done
         save_name = (dog_name + '_' + condition)
         dog_track, dog_centroid = clean_trail(dog_track, save_name, header, Hz, 
             TofD_centroids_folder)
-              
+        
+        # Find start/stop time for each trial and then cut GPS data accordingly
         try:
             start_row = dog_track[dog_track['time']==start_time].index[0]
             dog_track=dog_track[start_row:]
@@ -339,11 +461,13 @@ def time_of_day(path, header, Hz, field_info, WS_data):
         except:
             pass
         
-        
+        # Subset dog head up/down data
         dog_tilt = dog_track[dog_track['tilt']==0]
+        # Subset mobile weather station data for the dog and trail
         dog_WS = WS_data[(WS_data['Date']==date) & (WS_data['Dog']==dog_name)]
         
         # # Graph all TofD trials
+        # # Comment out if unneeded
         # graph_trail(dog_name, dog_centroid, dog_tilt, dog_WS, TofD_trail,
         #     condition, TofD_graph_folder)
         
@@ -373,7 +497,8 @@ def time_of_day(path, header, Hz, field_info, WS_data):
             'start order': field_info_TofD.iloc[trial]['start order'],
             'btwn trail area': traildog_area
             }
-        
+    
+    # Create a pandas data frame out of the dict of all dog trails    
     TofD_stats_df = pd.DataFrame.from_dict(
         {
             (i,j): TofD_stats_dict[i][j] 
@@ -384,7 +509,8 @@ def time_of_day(path, header, Hz, field_info, WS_data):
     TofD_stats_df = TofD_stats_df.rename(index=str, 
         columns={"level_0": "Condition", "level_1": "Dog"}
         )
-        
+     
+    # Get averages for meteorological data   
     trail_avg_diff = weather_station_stats(WS_data)
     
     ToD_trail_diff = trail_avg_diff[
@@ -404,13 +530,28 @@ def time_of_day(path, header, Hz, field_info, WS_data):
     return ToD_trail_diff 
     
 def trail_age(path, header, Hz, field_info, WS_data):
+    ''' Calculates stats about the time of day experiment regarding trail length,
+        time to completing the trail, meteorlogical data, etc.
+
+    Args:
+        path:       str; main path of script
+        header:     list of str; names for coluns
+        Hz:         int; rate of GPS recordings
+        field_info: pd df; contains information about each experiment
+        WS_data:    pd df; all mobile weather station readings
+
+    Returns: 
+        trail_age_vals: pd df; data containing stats about each dog's trail
+    '''
+    
     # Time of Day trail
     # Find centroids for raw GPS data if file has not yet been created
     trail_path = (path + '/TrackingData/russell_trailage')
     trail_age_trail = pd.read_csv(trail_path + \
         '/Russell_trailage_trail.csv', sep=','
         )
-        
+    
+    # check for existing graph folder      
     trail_age_graph_folder = path+'/TrackingData/russell_trailage/graphs'    
     if not os.path.exists(trail_age_graph_folder):
         os.makedirs(trail_age_graph_folder)
@@ -418,10 +559,13 @@ def trail_age(path, header, Hz, field_info, WS_data):
     field_info_trail_age = field_info[
         field_info['expt'] == 'Trail Age'].reset_index() 
     list_conditions = field_info_trail_age['condition'].unique().tolist()
+    
+    # create empty dict to store information about each dog
     trail_age_stats_dict = {}
     for condition in list_conditions:
         trail_age_stats_dict[condition]={}
     
+    # Loop through all dog trials and calculate data for each
     trail_age_files = path+'/TrackingData/russell_trailage/dogs'
     trail_age_dist_folder = path+'/TrackingData/russell_trailage/dogs/dog2trail_dist'
     for trial in range(0, len(field_info_trail_age)):
@@ -430,16 +574,20 @@ def trail_age(path, header, Hz, field_info, WS_data):
         trail = (field_info_trail_age.iloc[trial]['trail_laid_by'])
         condition = (field_info_trail_age.iloc[trial]['condition'])
         
+        # Find correct file
         dog_track = find_dog_file(trail_age_files, dog_name, condition)
-
+        
+        # Search for existing centroids files
         trail_age_centroids_folder = path+'/TrackingData/russell_trailage/dogs/centroids'
         if not os.path.exists(trail_age_centroids_folder):
             os.makedirs(trail_age_centroids_folder)
         
+        # Create new centroids or load them if not preexisting
         save_name = (dog_name + '_' + condition)
         dog_track, dog_centroid = clean_trail(dog_track, save_name, header, Hz, 
             trail_age_centroids_folder)
-              
+        
+        # Get start/end times for each trial and clip GPS & head data    
         try:
             start_row = dog_track[dog_track['time']==start_time].index[0]
             dog_track=dog_track[start_row:]
@@ -452,7 +600,7 @@ def trail_age(path, header, Hz, field_info, WS_data):
         except:
             pass
         
-        
+        # subset dog head up/down data
         dog_tilt = dog_track[dog_track['tilt']==0]
         dog_WS = WS_data[(WS_data['Date']==date) & (WS_data['Dog']==dog_name)]
         
@@ -540,22 +688,37 @@ def trial_time(start, end):
     return total_sec, total_time
 
 def weather_station_stats(WS_data):
+    ''' Calculates the average meteorological readings either by day or by
+        each dog's trail. Then calculates the change between when the person
+        laid the trail and when the dog was trailing.
+
+    Args:
+        WS_data:   pd df; all mobile weather station data
+
+    Returns: 
+        trail_avg_diff: pd df; the average of meteorogical data
+    '''
+    
     dogs_WS_data = WS_data[
         (WS_data['Dog']=='Kapo') | (WS_data['Dog']=='Voz') | \
         (WS_data['Dog']=='Zinka') | (WS_data['Dog']=='Gig')
         ]
-        
+    
+    # Find average of the entire day
     dogs_daily_avg = dogs_WS_data.groupby(
         ['Date', 'Condition']).mean().reset_index() 
-        
+    
+    # Find average during one dog's run
     dogs_trail_avg = dogs_WS_data.groupby(
         ['Date', 'Experiment', 'Condition', 'Dog']).mean().reset_index()
-        
+    
+    # Subset out people's trails
     WS_data_people = WS_data[
         (WS_data['Dog']!='Kapo') & (WS_data['Dog']!='Voz') & \
         (WS_data['Dog']!='Zinka') & (WS_data['Dog']!='Gig')
         ]
-        
+    
+    #  Averages during the person's trail
     people_trail_avg = WS_data_people.groupby(
         ['Date', 'Condition', 'Dog']).mean().reset_index()
     
@@ -567,6 +730,7 @@ def weather_station_stats(WS_data):
     trail_avg_diff = pd.DataFrame(temp_diff)
     trail_avg_diff.columns = ['temp_change']
     
+    #  Find the difference and make new columns
     for col in col_names[4:8]:
         trail_avg_diff[col+'_change'] = (
         trail_avg[col+'_y'] - trail_avg[col+'_x']
@@ -592,7 +756,11 @@ if __name__ == '__main__':
     # ToD_trail_diff = time_of_day(path, header, Hz, field_info, WS_data)
     trail_age_vals = trail_age(path, header, Hz, field_info, WS_data)
     
-       #
+     
+     
+     
+     
+    # Testing area below this line
     # path='/Users/judyjinn/Python/DogTracking/Field/TrackingData/briones_TofD/dogs/dog2trail_dist'
     # dog_dist2trail = pd.read_csv(path+'/Gig_afternoon_dist2path.csv', sep=',')
     # dist_freq = dog_dist2trail.groupby(['trail index', 'trail_lat','trail_long']).count()['dist2trail'].reset_index()
@@ -625,6 +793,4 @@ if __name__ == '__main__':
     # ax.legend(loc='lower right').draggable()
     # plt.subplots_adjust(bottom = None, top = 0.9)
     # plt.show()
-    #
-    #
     #
