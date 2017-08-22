@@ -1,4 +1,4 @@
-# DogField
+# dog_field_analysis
 
 An experiment where search and rescues dogs are outfitted with GPS trackers and meters which track their head up and down position. We also take meteorological measurements over the course of a 0.5-1.0 mile trail. This script analyzes dog behavior and interprets how meteorological factors may affect dog trails deviating from the original trail laid by a human.
 
